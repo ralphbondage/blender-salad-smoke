@@ -1,0 +1,38 @@
+name: build-smoke-image
+
+# Builds the Salad smoke-test image and publishes it to GitHub Container Registry as
+# ghcr.io/<owner>/blender-salad-smoke:1 (and :latest). Run it from the Actions tab
+# (workflow_dispatch) or by pushing to main. No secrets beyond the built-in GITHUB_TOKEN.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lowercase image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/blender-salad-smoke" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:1
+            ${{ env.IMAGE }}:latest
