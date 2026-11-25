@@ -29,6 +29,20 @@ timeout 60 eglinfo -B 2>&1 | head -40 || echo "eglinfo failed"
 section "vulkaninfo"
 timeout 60 vulkaninfo --summary 2>&1 | head -40 || echo "vulkaninfo failed"
 
+section "WSL/D3D12 library probe (needed for Mesa d3d12 = GPU OpenGL over /dev/dxg)"
+echo "--- find libd3d12 / libdxcore / libnvdxgdmal anywhere:"
+find / -xdev \( -name 'libd3d12*' -o -name 'libdxcore*' -o -name 'libnvdxgdmal*' -o -name 'libnvidia-*' \) 2>/dev/null | head -40
+echo "--- /usr/lib/wsl, /lib/wsl, /mnt/wsl:"
+ls -la /usr/lib/wsl /usr/lib/wsl/lib /lib/wsl /mnt/wsl 2>&1 | head -20
+echo "--- NVIDIA/WSL-looking mounts:"
+grep -iE 'wsl|nvidia|dxg|lib' /proc/mounts | head -20
+echo "--- Mesa dri drivers present:"
+ls /usr/lib/x86_64-linux-gnu/dri 2>&1 | head -30
+echo "--- EGL surfaceless with Mesa d3d12 forced:"
+EGL_PLATFORM=surfaceless MESA_LOADER_DRIVER_OVERRIDE=d3d12 GALLIUM_DRIVER=d3d12 MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA LIBGL_DEBUG=verbose timeout 60 eglinfo -B 2>&1 | head -30
+echo "--- GLX (xvfb) with Mesa d3d12 forced:"
+MESA_LOADER_DRIVER_OVERRIDE=d3d12 GALLIUM_DRIVER=d3d12 MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA LIBGL_DEBUG=verbose timeout 60 xvfb-run -a -s "-screen 0 1280x720x24 +extension GLX" glxinfo -B 2>&1 | grep -iE 'renderer|d3d12|error|fail|libd3d|dxcore|MESA' | head -15
+
 run_case() {  # name, command...
   local name="$1"; shift
   section "case: $name"
@@ -69,6 +83,7 @@ B="blender -b --factory-startup --python /smoke/smoke_blender.py"
 run_case eevee_opengl_egl     $B -- eevee /tmp/eevee_gl.png
 run_case eevee_opengl_xvfb    xvfb-run -a -s "-screen 0 1280x720x24 +extension GLX" $B -- eevee /tmp/eevee_xvfb.png
 run_case eevee_vulkan         blender -b --factory-startup --gpu-backend vulkan --python /smoke/smoke_blender.py -- eevee /tmp/eevee_vk.png
+run_case eevee_d3d12_forced   env EGL_PLATFORM=surfaceless MESA_LOADER_DRIVER_OVERRIDE=d3d12 GALLIUM_DRIVER=d3d12 MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA $B -- eevee /tmp/eevee_d3d12.png
 run_case cycles_gpu           $B -- cycles /tmp/cycles.png
 
 section "SUMMARY"

@@ -34,5 +34,5 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ env.IMAGE }}:2
+            ${{ env.IMAGE }}:3
             ${{ env.IMAGE }}:latest
