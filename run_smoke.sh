@@ -38,10 +38,32 @@ echo "--- NVIDIA/WSL-looking mounts:"
 grep -iE 'wsl|nvidia|dxg|lib' /proc/mounts | head -20
 echo "--- Mesa dri drivers present:"
 ls /usr/lib/x86_64-linux-gnu/dri 2>&1 | head -30
-echo "--- EGL surfaceless with Mesa d3d12 forced:"
-EGL_PLATFORM=surfaceless MESA_LOADER_DRIVER_OVERRIDE=d3d12 GALLIUM_DRIVER=d3d12 LIBGL_DEBUG=verbose timeout 60 eglinfo -B 2>&1 | head -30
-echo "--- GLX (xvfb) with Mesa d3d12 forced:"
-MESA_LOADER_DRIVER_OVERRIDE=d3d12 GALLIUM_DRIVER=d3d12 LIBGL_DEBUG=verbose timeout 60 xvfb-run -a -s "-screen 0 1280x720x24 +extension GLX" glxinfo -B 2>&1 | grep -iE 'renderer|d3d12|error|fail|libd3d|dxcore|MESA' | head -15
+echo "--- env, /dev/dri, mesa packages, d3d12_dri.so link check:"
+echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}"
+ls -la /dev/dri /dev/dxg 2>&1 | head -8
+dpkg -l 2>/dev/null | grep -E 'libgl1-mesa-dri|libegl-mesa0|mesa-utils ' | awk '{print $2, $3}'
+for so in /usr/lib/x86_64-linux-gnu/dri/d3d12_dri.so; do
+  echo "ldd $so:"; ldd "$so" 2>&1 | grep -iE 'not found|d3d12|dxcore' || echo "(no missing libs, no d3d12/dxcore deps listed)"
+done
+
+# Try several ways of making Mesa's d3d12 (GL over D3D12 over /dev/dxg) come up. Each prints
+# 'D3D12V[name] <line>' for lines mentioning renderer / version / errors.
+XVFB='xvfb-run -a -s "-screen 0 1280x720x24 +extension GLX"'
+d3d12v() {  # name, then the full command (env VAR=.. cmd ..)
+  local name="$1"; shift
+  echo "D3D12V[$name] === $*"
+  timeout 90 "$@" 2>&1 | grep -iE 'renderer|OpenGL (core )?(profile )?version|d3d12|dxg|dxcore|error|fail|warning|signal|abort|segm' | head -14 | sed "s/^/D3D12V[$name] /"
+}
+d3d12v sw_glx_xvfb        env LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=d3d12 xvfb-run -a -s "-screen 0 1280x720x24 +extension GLX" glxinfo -B
+d3d12v glx_xvfb_nosw      env GALLIUM_DRIVER=d3d12 xvfb-run -a -s "-screen 0 1280x720x24 +extension GLX" glxinfo -B
+d3d12v sw_egl_surfaceless env LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=d3d12 EGL_PLATFORM=surfaceless eglinfo -B
+d3d12v egl_override       env EGL_PLATFORM=surfaceless MESA_LOADER_DRIVER_OVERRIDE=d3d12 GALLIUM_DRIVER=d3d12 LIBGL_DEBUG=verbose eglinfo -B
+d3d12v sw_egl_xvfb        env LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=d3d12 xvfb-run -a -s "-screen 0 1280x720x24 +extension GLX" eglinfo -B
+if command -v strace >/dev/null 2>&1; then
+  echo "--- strace of d3d12 glxinfo (files touched that mention dxg/d3d12/dxcore/dri):"
+  env LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=d3d12 timeout 120 strace -f -qq -e trace=openat,open,ioctl -o /tmp/st.txt xvfb-run -a -s "-screen 0 1280x720x24 +extension GLX" glxinfo -B >/dev/null 2>&1
+  grep -E 'dxg|d3d12|dxcore|/dri/|renderD|card0' /tmp/st.txt | head -40 | sed 's/^/STRACE /'
+fi
 
 run_case() {  # name, command...
   local name="$1"; shift
@@ -84,6 +106,8 @@ run_case eevee_opengl_egl     $B -- eevee /tmp/eevee_gl.png
 run_case eevee_opengl_xvfb    xvfb-run -a -s "-screen 0 1280x720x24 +extension GLX" $B -- eevee /tmp/eevee_xvfb.png
 run_case eevee_vulkan         blender -b --factory-startup --gpu-backend vulkan --python /smoke/smoke_blender.py -- eevee /tmp/eevee_vk.png
 run_case eevee_d3d12_forced   env EGL_PLATFORM=surfaceless MESA_LOADER_DRIVER_OVERRIDE=d3d12 GALLIUM_DRIVER=d3d12 $B -- eevee /tmp/eevee_d3d12.png
+run_case eevee_d3d12_sw_x11   xvfb-run -a -s "-screen 0 1280x720x24 +extension GLX" env LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=d3d12 EGL_PLATFORM=x11 $B -- eevee /tmp/eevee_d3d12_x11.png
+run_case eevee_d3d12_sw_surfaceless env LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=d3d12 EGL_PLATFORM=surfaceless $B -- eevee /tmp/eevee_d3d12_sl.png
 run_case cycles_gpu           $B -- cycles /tmp/cycles.png
 
 section "SUMMARY"

@@ -34,7 +34,7 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ env.IMAGE }}:4
+            ${{ env.IMAGE }}:5
             ${{ env.IMAGE }}:latest
 
       - name: Build and push the Ubuntu 24.04 variant (for AMD nodes)
@@ -44,4 +44,4 @@ jobs:
           file: Dockerfile.noble
           push: true
           tags: |
-            ${{ env.IMAGE }}:4-noble
+            ${{ env.IMAGE }}:5-noble

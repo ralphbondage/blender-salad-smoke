@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl xz-utils \
         libegl1 libgl1 libgles2 libglx0 libglvnd0 libvulkan1 \
         libgl1-mesa-dri libegl-mesa0 libglx-mesa0 mesa-vulkan-drivers \
-        mesa-utils vulkan-tools xvfb xauth \
+        mesa-utils vulkan-tools xvfb xauth strace \
         libxi6 libxrender1 libxkbcommon0 libxkbcommon-x11-0 libsm6 libice6 \
         libxxf86vm1 libxfixes3 libxext6 libx11-6 libxcb1 libdecor-0-0 libwayland-client0 \
         libsndfile1 libasound2t64 \
