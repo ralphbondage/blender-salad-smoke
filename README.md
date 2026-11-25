@@ -1,55 +1,43 @@
-# Salad smoke test: EEVEE and Cycles on SaladCloud
+# Blender on SaladCloud: smoke test results and the Cycles render pipeline
 
-Question this answers: can Blender 5.1.1 render in a Salad container with EEVEE (OpenGL via EGL, OpenGL via
-Xvfb, or Vulkan) and with Cycles (OptiX/CUDA)? The result decides whether the Salad render pipeline can keep
-your EEVEE scenes or must use Cycles / another provider.
+Two parts: the smoke test that answered "can EEVEE or Cycles render in a Salad container?", and `render/`, the
+pipeline built on the answer. Images are public and contain no secrets or scene data.
 
-Status 2026-11-24: **nothing built, pushed or deployed.** No Docker on this machine and no Salad key yet.
+## Smoke test result (2026-11-25)
+Salad runs every container in WSL2 on volunteer Windows PCs. Measured on a real RTX 4090 node and a real AMD RX 7900 XTX node:
 
-Checked without Docker or Salad:
-- `smoke_blender.py` runs in the local Blender 5.1.1 (RTX 5080): EEVEE 1080p 48 samples renders in about 1.3-3.8 s
-  (image looks right), Cycles picks OPTIX and renders in 3.4 s. Use these as the local baseline.
-- The CUDA base image tag `nvidia/cuda:12.4.1-runtime-ubuntu22.04` exists on Docker Hub.
-- The Blender 5.1.1 tarball URL in the Dockerfile returns 200 (396 MB).
-- All apt packages in the Dockerfile exist in Ubuntu 22.04 (jammy / jammy-updates).
-- Shell and Python syntax checks pass.
+| Engine | NVIDIA node | AMD node |
+|---|---|---|
+| EEVEE OpenGL (EGL / Xvfb) | CPU only (Mesa llvmpipe), GPU idle, 13-40 s/frame | CPU only |
+| EEVEE Vulkan | fails, falls back to CPU | falls back to CPU |
+| EEVEE via Mesa d3d12 | not present | libraries load, device creation fails, Blender segfaults |
+| Cycles CUDA | works at GPU speed | n/a (no CUDA) |
+| Cycles OptiX | fails (init error 7804) | n/a |
 
-Not checked: the Docker build itself, `run_smoke.sh` in a container (including whether `glxinfo` ships in
-`mesa-utils-bin`), and the Salad request body in `salad_smoke.py` (from the docs, not a live call).
+So on Salad, EEVEE cannot use the GPU and Cycles can, with CUDA only (no OptiX/RT cores).
 
 ## Files
-- `Dockerfile`: CUDA 12.4 runtime base + Blender 5.1.1 (official tarball) + EGL/Vulkan/Xvfb tooling.
-- `run_smoke.sh`: prints GPU/driver/EGL/Vulkan diagnostics, then four 1080p renders (48 samples):
-  `eevee_opengl_egl`, `eevee_opengl_xvfb`, `eevee_vulkan`, `cycles_gpu`. Prints a JSON summary between
-  `SMOKE_SUMMARY_BEGIN` / `SMOKE_SUMMARY_END`, then holds 15 min (HOLD_SECONDS) so logs can be read.
-- `smoke_blender.py`: the in-Blender test (scene, engine setup, timing, PNG size, GPU renderer string).
-- `salad_smoke.py`: create / start / status / logs / delete via the Salad API. `create` and `delete` are dry runs
-  unless `--go` is passed.
+- `Dockerfile`, `Dockerfile.noble`, `run_smoke.sh`, `smoke_blender.py`, `salad_smoke.py`: the smoke test (kept for re-testing).
+- `render/Dockerfile`: worker image (CUDA 12.4 runtime, Blender 5.1.1, Kelpie job runner).
+- `render/render_cycles.py`: renders a frame range (PNG), skips existing frames, honours camera-cut markers.
+- `render/prepare_scene.py`: lists external files a `.blend` needs (and can write a packed copy); never saves the source.
+- `render/salad_render.py`: client: upload scene to R2, create the Salad group, queue chunk jobs in Kelpie, status, download frames.
+- `.github/workflows/build.yml`: builds the images to `ghcr.io/ralphbondage/` on every push.
 
-## Steps (you do the account-bound ones)
-1. Build and push a **public** image (no secrets inside). Needs Docker Desktop, or build in CI.
-   ```powershell
-   docker build -t <your-dockerhub-or-ghcr-user>/blender-salad-smoke:1 .
-   docker push <your-dockerhub-or-ghcr-user>/blender-salad-smoke:1
-   ```
-2. Set credentials (API key from the Salad portal; never commit it):
-   ```powershell
-   $env:SALAD_API_KEY="..."; $env:SALAD_ORG="..."; $env:SALAD_PROJECT="..."
-   python salad_smoke.py gpu-classes
-   python salad_smoke.py create --image <user>/blender-salad-smoke:1 --gpu 4090      # dry run
-   python salad_smoke.py create --image <user>/blender-salad-smoke:1 --gpu 4090 --go # creates, not started
-   python salad_smoke.py start                                                       # billing starts per second
-   ```
-3. Read stdout in the Salad portal (container group > Logs). Look for the `SMOKE_SUMMARY` block.
-4. **Stop billing:** `python salad_smoke.py delete --go` when done (the container also exits after the hold).
+## Render pipeline
+Scene and frames live in a Cloudflare R2 bucket (S3 API, no egress fees). Kelpie (Salad's job queue) hands each worker one chunk
+of frames, downloads the scene first, uploads frames as they finish, and re-queues a chunk if its node disappears.
 
-Expected cost: a few cents (Lowest/"batch" tier, RTX 4090 about $0.16/h, billed per second while running;
-allocation and image download are free). A node may take a while to be allocated.
+```powershell
+# one-time: user env vars SALAD_API_KEY, R2_ENDPOINT, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY; pip install boto3
+python render/salad_render.py upload --job s7 --blend scene_s7_v11.blend
+python render/salad_render.py deploy --job s7 --replicas 4 --go          # creates the group, not started
+python render/salad_render.py start  --job s7                            # billing starts
+python render/salad_render.py submit --job s7 --start 1 --end 1263 --step 2 --samples 48 --go
+python render/salad_render.py status --job s7
+python render/salad_render.py download --job s7 --out frames
+python render/salad_render.py delete --job s7 --go                       # stop billing
+```
 
-## Reading the result
-- `eevee_opengl_egl` ok: EEVEE works headless. The pipeline can keep your scenes and EEVEE settings.
-- Only `eevee_opengl_xvfb` ok: works, but may be slower; time it against your 2.1 s/frame RTX 5080 baseline.
-- Only `eevee_vulkan` ok: use `--gpu-backend vulkan` in the worker.
-- Only `cycles_gpu` ok: the node exposes compute but not graphics. Use Cycles (look changes, cost changes) or a
-  provider with real Linux GPUs (RunPod, Vast).
-- All fail: check `nvidia-smi` and the driver-libs sections; paste the log back and we adjust.
+Measured locally on an RTX 5080, real scene at 1080p, Cycles with CUDA only and OpenImageDenoise:
+48 spp = 7.7-8.2 s/frame; 128 spp adaptive = 10-11 s/frame (EEVEE 64 spp is 4.4 s, Cycles with OptiX 5.6 s).
