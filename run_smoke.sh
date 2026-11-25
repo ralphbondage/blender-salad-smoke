@@ -33,13 +33,30 @@ run_case() {  # name, command...
   local name="$1"; shift
   section "case: $name"
   local log="/tmp/case_${name}.log"
+  # Sample GPU utilization every 0.5 s during the run, and count child CPU seconds
+  # (fields 16+17 of /proc/$$/stat, in 1/100 s). GPU util ~0% with high CPU seconds
+  # during an EEVEE render means it ran on the CPU (software GL), not the GPU.
+  local smp="/tmp/gpu_${name}.csv"
+  nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv,noheader,nounits -lms 500 >"$smp" 2>&1 &
+  local smp_pid=$!
+  local c0 t0
+  c0=$(awk '{print $16+$17}' /proc/$$/stat); t0=$(date +%s.%N)
   timeout 600 "$@" >"$log" 2>&1
   local rc=$?
+  local c1 t1 cpu_s wall_s
+  c1=$(awk '{print $16+$17}' /proc/$$/stat); t1=$(date +%s.%N)
+  kill "$smp_pid" 2>/dev/null; wait "$smp_pid" 2>/dev/null
+  cpu_s=$(awk -v a="$c0" -v b="$c1" 'BEGIN{printf "%.1f",(b-a)/100}')
+  wall_s=$(awk -v a="$t0" -v b="$t1" 'BEGIN{printf "%.1f",b-a}')
+  local gmax gmem
+  gmax=$(awk -F', *' 'NR>0 && $1+0>m {m=$1+0} END{print m+0}' "$smp")
+  gmem=$(awk -F', *' '$2+0>m {m=$2+0} END{print m+0}' "$smp")
   tail -n 25 "$log"
+  echo "usage: wall=${wall_s}s cpu=${cpu_s}s gpu_util_max=${gmax}% gpu_mem_max=${gmem}MiB"
   local line
   line=$(grep -h '^SMOKE_JSON=' "$log" | tail -1 | sed 's/^SMOKE_JSON=//')
   [ -z "$line" ] && line="{\"ok\":false,\"error\":\"no SMOKE_JSON (exit $rc, likely crash)\"}"
-  echo "{\"case\":\"$name\",\"exit\":$rc,\"result\":$line}" >> "$RESULTS"
+  echo "{\"case\":\"$name\",\"exit\":$rc,\"wall_s\":$wall_s,\"cpu_s\":$cpu_s,\"gpu_util_max_pct\":$gmax,\"gpu_mem_max_mib\":$gmem,\"result\":$line}" >> "$RESULTS"
 }
 
 section "which GL renderer would Blender get? (llvmpipe = CPU software, NOT a real GPU)"

@@ -18,7 +18,7 @@ import urllib.error
 import urllib.request
 
 BASE = "https://api.salad.com/api/public"
-GROUP_NAME = "blender-smoke-test"
+GROUP_NAME = os.environ.get("SALAD_GROUP_NAME", "blender-smoke-test")
 
 
 def env(name):

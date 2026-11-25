@@ -10,12 +10,12 @@ ENV DEBIAN_FRONTEND=noninteractive \
     NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics,video,display
 
 # libglvnd + EGL/GL/Vulkan loaders (the NVIDIA vendor libs themselves come from the host driver),
-# xvfb as a fallback display, mesa-utils-bin for eglinfo, vulkan-tools for vulkaninfo,
+# xvfb as a fallback display, mesa-utils (jammy: ships eglinfo and glxinfo), vulkan-tools for vulkaninfo,
 # and the X/GL libs the Blender binary links against.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl xz-utils \
         libegl1 libgl1 libgles2 libglx0 libglvnd0 libvulkan1 \
-        mesa-utils-bin vulkan-tools xvfb xauth \
+        mesa-utils vulkan-tools xvfb xauth \
         libxi6 libxrender1 libxkbcommon0 libxkbcommon-x11-0 libsm6 libice6 \
         libxxf86vm1 libxfixes3 libxext6 libx11-6 libxcb1 libdecor-0-0 libwayland-client0 \
         libsndfile1 libasound2 \
