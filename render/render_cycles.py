@@ -15,7 +15,7 @@ import time
 import bpy
 
 a = sys.argv[sys.argv.index("--") + 1:]
-outdir, s0, s1, step = a[0], int(a[1]), int(a[2]), int(a[3])
+outdir, s0, s1, step = os.path.abspath(a[0]), int(a[1]), int(a[2]), int(a[3])   # absolute: Blender resolves relative paths oddly (C:\ on Windows)
 W, H, S, cam, prefix = int(a[4]), int(a[5]), int(a[6]), a[7], a[8]
 
 sc = bpy.context.scene
