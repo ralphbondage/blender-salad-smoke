@@ -45,3 +45,14 @@ jobs:
           push: true
           tags: |
             ${{ env.IMAGE }}:5-noble
+
+      # The real render worker: Blender 5.1.1 + Cycles (CUDA) + Kelpie job runner. No secrets, no scene data.
+      - name: Build and push the Cycles render worker
+        uses: docker/build-push-action@v6
+        with:
+          context: render
+          file: render/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/blender-salad-render:1
+            ghcr.io/${{ github.repository_owner }}/blender-salad-render:latest
